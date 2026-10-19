@@ -2,27 +2,29 @@
 This module contains the classes for the HTMLComponents
 used to build the resulting html document with nested objects
 """
-from typing import List, Tuple
+
+from typing import Any
 from dataclasses import dataclass
 
 
-@dataclass
 class HTMLComponent:
     """Abstract class used for an abstract representation of a html component object"""
-    def __init__(self):
+
+    def __init__(self) -> None:
         pass
 
-    def __str__(self):
-        raise Exception("Class does not yet override the __str__ method")
+    def __str__(self) -> str:
+        raise NotImplementedError("Subclasses must override the __str__ method")
 
 
 class HTMLContainer(HTMLComponent):
     """Class used to represent a html div/container object inheriting from html component object"""
-    def __init__(self):
-        super().__init__()
-        self.children: List[HTMLComponent] = []
 
-    def add_component(self, child: HTMLComponent):
+    def __init__(self) -> None:
+        super().__init__()
+        self.children: list[HTMLComponent] = []
+
+    def add_component(self, child: HTMLComponent) -> None:
         """Adds handed html component object to the list of children in this object in order to nest html objects"""
         self.children.append(child)
 
@@ -33,7 +35,8 @@ class HTMLContainer(HTMLComponent):
 @dataclass
 class HTMLTableCell(HTMLComponent):
     """Class used to represent an html table cell object inheriting from html component object"""
-    def __init__(self, data, is_td=True):
+
+    def __init__(self, data: Any, is_td: bool = True) -> None:
         super().__init__()
         self.data = data
         self.is_td = is_td
@@ -47,29 +50,31 @@ class HTMLTableCell(HTMLComponent):
 @dataclass
 class HTMLTableRow(HTMLComponent):
     """Class used to represent a html table row object inheriting from html component object"""
-    def __init__(self):
-        super().__init__()
-        self.cells = []
 
-    def add_cell(self, cell: HTMLTableCell):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cells: list[HTMLTableCell] = []
+
+    def add_cell(self, cell: HTMLTableCell) -> None:
         """Add handed html cell object to the cells list of the object"""
         self.cells.append(cell)
 
     def __str__(self) -> str:
-        return f'<tr>{"".join([str(cell) for cell in self.cells])}</tr>'
+        return f"<tr>{''.join([str(cell) for cell in self.cells])}</tr>"
 
 
 @dataclass
 class HTMLTable(HTMLComponent):
     """Class used to represent a html table object inheriting from html component object"""
-    def __init__(self, head: List):
+
+    def __init__(self, head: list[Any]) -> None:
         super().__init__()
         self.head: HTMLTableRow = HTMLTableRow()
         for item in head:
             self.head.add_cell(HTMLTableCell(item, is_td=False))
-        self.body: List[HTMLTableRow] = []
+        self.body: list[HTMLTableRow] = []
 
-    def add_row(self, data: Tuple):
+    def add_row(self, data: tuple[Any, ...]) -> None:
         """Converts haded one dimensional data list to table row object and stored in this objects body list"""
         row: HTMLTableRow = HTMLTableRow()
         for item in data:
@@ -93,10 +98,11 @@ class HTMLTable(HTMLComponent):
 @dataclass
 class HTMLFile(HTMLComponent):
     """Class used to represent an html file object inheriting from html component"""
-    def __init__(self, title: str):
+
+    def __init__(self, title: str) -> None:
         super().__init__()
         self.title = title
-        self.components = []
+        self.components: list[HTMLComponent] = []
 
     def add_component(self, component: HTMLComponent) -> None:
         """Adds handed html component object to components list of this instance in order to nest html components"""
@@ -124,35 +130,38 @@ class HTMLFile(HTMLComponent):
 @dataclass
 class HTMLParagraph(HTMLComponent):
     """Class use to represent a html paragraph object inheriting from html component object"""
-    def __init__(self, text, bold=False):
+
+    def __init__(self, text: str, bold: bool = False) -> None:
         super().__init__()
         self.text = text
         self.bold = bold
 
     def __str__(self) -> str:
         if self.bold:
-            return f'<p><strong>{self.text}</strong></p>'
-        return f'<p>{self.text}</p>'
+            return f"<p><strong>{self.text}</strong></p>"
+        return f"<p>{self.text}</p>"
 
 
 @dataclass
 class HTMLHeadline(HTMLComponent):
     """Class used to represent a html headline object inheriting from html component object"""
-    def __init__(self, text, level=1):
+
+    def __init__(self, text: str, level: int = 1) -> None:
         super().__init__()
         self.text = text
         self.level = level
 
     def __str__(self) -> str:
-        return f'<h{self.level}>{self.text}</h{self.level}>'
+        return f"<h{self.level}>{self.text}</h{self.level}>"
 
 
 @dataclass
 class HTMLiFrame(HTMLComponent):
     """Class used to represent a html iframe object inheriting from html component object"""
-    def __init__(self, src: str):
+
+    def __init__(self, src: str) -> None:
         super().__init__()
         self.src = src
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'<iframe src="{self.src}" frameborder="0" height="400"></iframe>'
