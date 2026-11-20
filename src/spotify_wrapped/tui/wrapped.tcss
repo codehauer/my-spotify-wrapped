@@ -1,0 +1,134 @@
+Screen {
+    background: $background;
+}
+
+/* ---------- top bar ---------- */
+#topbar {
+    height: 3;
+    padding: 0 2;
+    background: $panel;
+    align-vertical: middle;
+}
+#brand {
+    color: $primary;
+    text-style: bold;
+    padding-right: 2;
+}
+#period {
+    width: 1fr;
+    color: $foreground-muted;
+}
+#view-select {
+    width: 22;
+}
+
+/* ---------- tabs ---------- */
+TabbedContent {
+    height: 1fr;
+}
+TabPane {
+    padding: 0;
+}
+TabPane > VerticalScroll {
+    padding: 1 2;
+    scrollbar-size-vertical: 1;
+}
+
+/* ---------- sections ---------- */
+Section {
+    height: auto;
+    border: round $primary 40%;
+    border-title-color: $primary;
+    border-title-style: bold;
+    border-subtitle-color: $foreground-muted;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+.columns {
+    height: auto;
+}
+.columns > Section {
+    width: 1fr;
+}
+.columns > Section:first-of-type {
+    margin-right: 1;
+}
+.-narrow .columns {
+    layout: vertical;
+}
+.-narrow .columns > Section {
+    width: 100%;
+    margin-right: 0;
+}
+
+/* ---------- KPI tiles ---------- */
+.stat-grid {
+    grid-size: 3;
+    grid-gutter: 1 2;
+    height: auto;
+    margin-bottom: 1;
+}
+.-narrow .stat-grid {
+    grid-size: 2;
+}
+StatCard {
+    height: auto;
+    background: $surface;
+    border-left: outer $primary;
+    padding: 1 2;
+}
+.stat-label {
+    color: $foreground-muted;
+    text-style: bold;
+}
+.stat-value {
+    color: $primary;
+    text-style: bold;
+    padding: 0;
+}
+.stat-caption {
+    color: $foreground-muted;
+}
+
+/* ---------- highlights ---------- */
+.highlight-grid {
+    grid-size: 2;
+    grid-gutter: 1 2;
+    height: auto;
+}
+.-narrow .highlight-grid {
+    grid-size: 1;
+}
+HighlightCard {
+    height: auto;
+    background: $surface;
+    padding: 1 2;
+}
+.highlight-title {
+    color: $secondary;
+    text-style: bold;
+}
+.highlight-value {
+    text-style: bold;
+    color: $foreground;
+}
+.highlight-detail {
+    color: $foreground-muted;
+}
+
+/* ---------- charts & tables ---------- */
+DataTable {
+    height: auto;
+    max-height: 24;
+    background: $surface;
+    scrollbar-size-horizontal: 0;
+}
+#weekly-chart {
+    height: 10;
+}
+#monthly-chart {
+    height: 12;
+}
+#hours ColumnChart {
+    height: 14;
+}

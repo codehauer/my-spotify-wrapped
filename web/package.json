@@ -1,0 +1,31 @@
+{
+  "name": "my-spotify-wrapped-web",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "demo-data": "cd .. && uv run spotify-wrapped json --demo -o web/public/stats.json",
+    "typecheck": "tsc -p .",
+    "build": "tsc -p . && vite build"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "^0.7.16",
+    "@astryxdesign/theme-neutral": "^0.7.16",
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@stylexjs/stylex": "^0.19.2",
+    "@tanstack/charts": "^1.5.0",
+    "lucide-react": "^1.77.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@astryxdesign/cli": "^0.7.16",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-singlefile": "^2.3.4"
+  }
+}
