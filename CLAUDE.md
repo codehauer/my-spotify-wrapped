@@ -4,29 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Turns the Spotify GDPR data export (`StreamingHistory*.json` files, each a list of `{endTime, artistName, trackName, msPlayed}` records, with `endTime` formatted as `"YYYY-MM-DD HH:MM"`) into listening statistics. Python ≥3.12, dependencies managed with **uv** (`pyproject.toml` / `uv.lock`). `requirements.txt` and `shell.nix` are older setups. There are no tests.
+Turns the Spotify GDPR data export into listening statistics, shown in a terminal UI (Textual) or a self-contained web page (React). Two export formats are supported: "Account data" (`StreamingHistory*.json`, records `{endTime: "YYYY-MM-DD HH:MM", artistName, trackName, msPlayed}`) and "Extended streaming history" (`Streaming_History_Audio_*.json`, records with `ts`, `ms_played`, `master_metadata_*`). Python ≥3.12, dependencies managed with **uv**. The web UI needs Node.js 22+ only when it is changed.
 
 ## Commands
 
 ```bash
-uv sync                                   # install dependencies
-uv run main.py -d <dir_with_history_json> -s <out_dir>   # HTML report
-uv run -m tui                             # Textual TUI (run from the folder that contains MyData/, see below)
-uv run textual run --dev tui.py           # TUI with textual-dev live CSS/devtools
-uv run texttual_server.py                 # serve the TUI in a browser via textual-serve
-uv run mypy .                             # type checking (mypy is a project dependency)
+uv sync                                              # install dependencies
+uv run spotify-wrapped tui --data <export_dir>       # terminal UI (--demo for fictional data)
+uv run spotify-wrapped tui --demo --serve            # TUI in the browser via textual-serve
+uv run spotify-wrapped web --data <export_dir> -o out/   # single-file HTML report
+uv run spotify-wrapped json --demo                   # raw statistics as JSON
+uv run python main.py -d <export_dir> -s <out_dir>   # legacy interface, same as `web`
+uv run pytest                                        # tests
+uv run mypy                                          # type checking (configured in pyproject.toml)
+cd web && npm install && npm run demo-data && npm run dev   # web UI dev server
+cd web && npm run build                              # type-check + rebuild the committed web template
 ```
 
 ## Architecture
 
-There are two independent front ends that do not share analysis code:
+All processing lives in one place; the UIs only display its result.
 
-1. **HTML report (original, 2022)**: `main.py` → `helper_functions.read_histories` loads **every** file in `-d` as JSON and concatenates them, so the directory must contain only history files. `main.py` splits the records into parallel lists, and the `data_parser.parse_*` functions turn each list into an `HTMLContainer` tree built from the small component classes in `html_components.py`. Each component renders through `__str__`. The output dir receives `spotify_stats.html`, `stream_chart.html` (a Plotly chart embedded through an iframe) and `style.css`. The CSS is hardcoded as a minified string in `main.py`. `style.css` in the repo is the source, and `compress_stylesheet.py` is a dev helper that minifies it so it can be pasted into that string.
-
-2. **TUI (current work on the `tui-development` branch)**: `analysis.py` is a pandas script that runs at **import time**. It reads hardcoded paths `./MyData/StreamingHistory0.json` and `StreamingHistory1.json` relative to the CWD, filters to the hardcoded `YEAR` constant, and exposes the results as module-level Series/DataFrames. `tui.py` (Textual `WrappedApp`) imports those globals directly and renders them as `StatisticsTable` widgets plus a `Sparkline`. When you add a statistic, compute it in `analysis.py` and import it in `tui.py`.
-
-`lookback.py` is a legacy console prototype. It depends on `prettytable`, which is not in the dependencies.
+- `src/spotify_wrapped/loader.py`: `load_streams(path, timezone)` recursively reads every JSON file, keeps only files in a known export format, and normalizes them to a DataFrame (`played_at` tz-aware, `artist`, `track`, `album`, `ms_played`). Podcasts, zero-length plays and duplicates are dropped. Timezone defaults to the local machine's.
+- `src/spotify_wrapped/statistics.py`: `build_report(frame, top_n, year)` returns a `Report` of frozen dataclasses: one `WrappedStatistics` per view (`"all"` plus one per year), including the human-readable `highlights`. **Add new statistics here**, then display them in both UIs.
+- `src/spotify_wrapped/tui/`: Textual app (`app.py`, widgets in `widgets.py`, styles in `wrapped.tcss`). Each tab is a `ViewPane` that recomposes when the selected year changes.
+- `web/`: React + Meta Astryx (`@astryxdesign/core`, neutral theme) + TanStack Charts (`@tanstack/charts`). `web/src/types.ts` mirrors the Python dataclasses; keep both in sync. `npm run build` produces one inlined HTML file at `src/spotify_wrapped/web_template/index.html` (committed so users don't need Node). `web.py` replaces the `"__WRAPPED_DATA__"` placeholder in it with the report JSON.
+- `src/spotify_wrapped/cli.py`: the `spotify-wrapped` entry point. `sample.py` generates the fictional `--demo` history used by tests.
 
 ## Data
 
-The user's export lives in `my_spotify_data/MyData/`. `*.json`, `data/` and `out/` are gitignored. Never commit personal streaming data.
+The user's export lives in `my_spotify_data/MyData/`. `*.json`, `my_spotify_data/`, `data/` and `out/` are gitignored. Never commit personal streaming data; use `--demo` / `spotify_wrapped.sample` for examples, tests and screenshots.

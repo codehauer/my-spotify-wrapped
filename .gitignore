@@ -163,6 +163,7 @@ cython_debug/
 data/
 out/
 MyData/
+my_spotify_data/
 spotify_wrapped.html
 
 # Never commit personal Spotify exports ...
