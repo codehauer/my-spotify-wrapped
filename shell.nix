@@ -1,18 +1,14 @@
 { pkgs ? import <nixpkgs> {} }:
 
 pkgs.mkShell {
-  name = "my-dev-env";
+  name = "my-spotify-wrapped";
 
   buildInputs = with pkgs; [
-    python312Packages.textual
-    python312Packages.textual-dev
-    python312Packages.pandas-stubs
-    python312Packages.pandas
-    python312Packages.numpy
+    uv          # Python dependencies: `uv sync`, then `uv run spotify-wrapped --help`
+    nodejs_22   # only needed to rebuild the web UI (web/)
   ];
 
   shellHook = ''
-    echo "Welcome to your Nix shell environment!"
-    echo "Python version: $(python3 --version)"
+    echo "My Spotify Wrapped dev shell – try: uv run spotify-wrapped tui --demo"
   '';
 }

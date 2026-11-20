@@ -162,6 +162,14 @@ cython_debug/
 
 data/
 out/
+MyData/
+spotify_wrapped.html
 
+# Never commit personal Spotify exports ...
 *.json
 *.pdf
+# ... but keep the web UI's project files.
+!web/package.json
+!web/package-lock.json
+!web/tsconfig.json
+node_modules/

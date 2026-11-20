@@ -1,0 +1,74 @@
+@import '@astryxdesign/core/reset.css';
+@import '@astryxdesign/core/astryx.css';
+@import '@astryxdesign/theme-neutral/theme.css';
+
+/* App tokens. Accent greens validated for chart use (OKLCH lightness band +
+   ≥3:1 contrast) against the light and dark surfaces. */
+:root {
+  --wrapped-accent: light-dark(#1a9e4b, #1aae52);
+  --wrapped-accent-soft: color-mix(in oklab, var(--wrapped-accent) 45%, var(--color-background-card));
+  --wrapped-accent-wash: color-mix(in oklab, var(--wrapped-accent) 12%, transparent);
+  --wrapped-heat-empty: light-dark(#ececea, #262626);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-body);
+  background: var(--color-background-body);
+  color: var(--color-text-primary);
+}
+
+.page {
+  max-width: 1240px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Section anchors land below the sticky navigation. */
+.anchor {
+  display: block;
+  position: relative;
+  top: -88px;
+  visibility: hidden;
+}
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--wrapped-accent);
+  color: #fff;
+}
+
+.highlight-icon {
+  font-size: 28px;
+  line-height: 1;
+  padding-top: 2px;
+}
+
+.ranking-bar .astryx-progress-bar-fill {
+  background: var(--wrapped-accent);
+}
+
+/* TanStack Charts inherit currentColor for axes, labels and grid lines. */
+.chart {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.heat-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+}
