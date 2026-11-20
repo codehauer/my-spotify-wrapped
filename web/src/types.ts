@@ -70,6 +70,54 @@ export interface Overview {
   peak_weekday: number
 }
 
+export interface GenreShare {
+  genre: string
+  streams: number
+  minutes: number
+  /** Percent of the listening time with a known genre. */
+  share: number
+}
+
+export interface GenreHour {
+  hour: number
+  genre: string
+  minutes: number
+  /** Percent of that hour's listening time. */
+  share: number
+}
+
+export interface MoodCell {
+  /** 0 = Monday … 6 = Sunday; -1 in the per-hour summary. */
+  weekday: number
+  hour: number
+  /** 0 (sad) … 100 (happy); null when there are too few streams. */
+  happiness: number | null
+  streams: number
+}
+
+export type TrinityAxis = 'atzig' | 'fotzig' | 'mausig'
+
+export interface Trinity {
+  atzig: number
+  fotzig: number
+  mausig: number
+  dominant: TrinityAxis
+  icon: string
+  tagline: string
+}
+
+export interface TasteProfile {
+  coverage: number
+  genres: GenreShare[]
+  genre_hours: GenreHour[]
+  mood_heatmap: MoodCell[]
+  mood_hours: MoodCell[]
+  average_happiness: number
+  happiest_hour: number | null
+  gloomiest_hour: number | null
+  trinity: Trinity
+}
+
 export interface WrappedStatistics {
   key: string
   label: string
@@ -91,6 +139,8 @@ export interface WrappedStatistics {
   weekdays: Bucket[]
   hours: Bucket[]
   heatmap: HeatCell[]
+  /** Genres, mood and the atzig/fotzig/mausig trinity; null without genre data. */
+  taste: TasteProfile | null
 }
 
 export interface Report {

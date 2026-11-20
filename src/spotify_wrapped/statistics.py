@@ -19,8 +19,9 @@ from typing import Any
 import pandas as pd
 
 from .formatting import format_duration, format_number, plural
+from .genres import BY_NAME, OTHER
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 ALL_TIME = "all"
@@ -119,6 +120,65 @@ class Overview:
 
 
 @dataclass(frozen=True)
+class GenreShare:
+    """One slice of the genre pie. Shares are of the listening time with a known genre."""
+
+    genre: str
+    streams: int
+    minutes: float
+    share: float
+
+
+@dataclass(frozen=True)
+class GenreHour:
+    """Listening time of one genre in one hour of the day."""
+
+    hour: int
+    genre: str
+    minutes: float
+    share: float
+    """Percent of that hour's listening time (with a known genre)."""
+
+
+@dataclass(frozen=True)
+class MoodCell:
+    weekday: int
+    """0 = Monday ... 6 = Sunday; ``-1`` for the per-hour summary in :attr:`TasteProfile.mood_hours`."""
+    hour: int
+    happiness: float | None
+    """0 (sad) ... 100 (happy); ``None`` when there are too few streams to tell."""
+    streams: int
+
+
+@dataclass(frozen=True)
+class Trinity:
+    """The atzig/fotzig/mausig profile, each 0–100 (see :mod:`spotify_wrapped.genres`)."""
+
+    atzig: float
+    fotzig: float
+    mausig: float
+    dominant: str
+    icon: str
+    tagline: str
+
+
+@dataclass(frozen=True)
+class TasteProfile:
+    coverage: float
+    """Percent of the listening time whose artist has a known genre."""
+    genres: list[GenreShare]
+    """The biggest genres, the rest folded into ``"Other"`` (always last)."""
+    genre_hours: list[GenreHour]
+    """24 × len(genres) cells, in the order of :attr:`genres`."""
+    mood_heatmap: list[MoodCell]
+    mood_hours: list[MoodCell]
+    average_happiness: float
+    happiest_hour: int | None
+    gloomiest_hour: int | None
+    trinity: Trinity
+
+
+@dataclass(frozen=True)
 class WrappedStatistics:
     key: str
     label: str
@@ -141,6 +201,8 @@ class WrappedStatistics:
     weekdays: list[Bucket]
     hours: list[Bucket]
     heatmap: list[HeatCell]
+    taste: TasteProfile | None = None
+    """Genres, mood and the trinity; ``None`` when no genres are known (see :mod:`spotify_wrapped.enrich`)."""
 
 
 @dataclass
@@ -174,7 +236,7 @@ def _minutes(ms: float) -> float:
 
 
 def _pct(part: float, whole: float) -> float:
-    return round(100 * part / whole, 1) if whole else 0.0
+    return round(100 * float(part) / float(whole), 1) if whole else 0.0
 
 
 def _ranking(grouped: pd.DataFrame, by: str, total: float, top_n: int, ascending: bool = False,
@@ -260,6 +322,133 @@ def _highlights(ov: Overview, top_artists: list[RankedItem], top_tracks: list[Ra
             "⌛", "Longest session", format_duration(s.minutes),
             f"Your longest single stream: {s.track} by {s.artist}."))
     return items
+
+# --------------------------------------------------------------------------- #
+# Taste: genres, mood, trinity
+# --------------------------------------------------------------------------- #
+
+MAX_GENRE_SLICES = 7
+"""Genres shown individually; the rest is folded into "Other" (8 categorical colors in total)."""
+MIN_MOOD_STREAMS = 3
+SKIP_MS = 30_000
+
+TRINITY_TEXT = {
+    "atzig": ("🍻", "Bass, beer benches and afterhours: you listen like the party never ends."),
+    "fotzig": ("💅", "Sassy, self-confident and a little bit bitchy: main character energy all the way."),
+    "mausig": ("🐭", "Soft, cosy and a bit dreamy: blankets, tea and your favourite sad songs."),
+}
+
+
+def mood_label(happiness: float) -> str:
+    if happiness >= 65:
+        return "Sunshine listener"
+    if happiness >= 57:
+        return "Good vibes"
+    if happiness >= 48:
+        return "Bittersweet"
+    return "Melancholic"
+
+
+def _weighted_happiness(group: pd.DataFrame) -> float | None:
+    if len(group) < MIN_MOOD_STREAMS or group["ms_played"].sum() <= 0:
+        return None
+    return round(100 * float((group["valence"] * group["ms_played"]).sum() / group["ms_played"].sum()), 1)
+
+
+def _trinity(frame: pd.DataFrame, known: pd.DataFrame) -> Trinity:
+    weights = known["ms_played"] / known["ms_played"].sum()
+    base = {
+        axis: float((known["genre"].map(lambda g, a=axis: getattr(BY_NAME[g], a)) * weights).sum())
+        for axis in ("atzig", "fotzig", "mausig")
+    }
+    minutes = frame["ms_played"]
+    total = float(minutes.sum()) or 1.0
+    wd, hr = frame["weekday"], frame["hour"]
+    # Behavioural nudges on top of the genre profile.
+    party_nights = ((wd == 4) & (hr >= 21)) | ((wd == 5) & ((hr < 5) | (hr >= 21))) | ((wd == 6) & (hr < 5))
+    cosy = (wd == 6) | ((hr >= 5) & (hr < 9))
+    bonus = {
+        "atzig": 0.4 * float(minutes[party_nights].sum()) / total,   # Friday & Saturday nights
+        "fotzig": 0.4 * float((frame["ms_played"] < SKIP_MS).mean()),  # skipping songs impatiently
+        "mausig": 0.4 * float(minutes[cosy].sum()) / total,          # Sundays and early mornings
+    }
+    scores = {axis: round(100 * min(base[axis] + bonus[axis], 1.0), 1) for axis in base}
+    dominant = max(scores, key=lambda a: scores[a])
+    icon, tagline = TRINITY_TEXT[dominant]
+    return Trinity(atzig=scores["atzig"], fotzig=scores["fotzig"], mausig=scores["mausig"],
+                   dominant=dominant, icon=icon, tagline=tagline)
+
+
+def compute_taste(frame: pd.DataFrame) -> TasteProfile | None:
+    """Genre, mood and trinity statistics; needs the columns added by :func:`spotify_wrapped.enrich.apply_genres`."""
+    if "genre" not in frame:
+        return None
+    if "weekday" not in frame:
+        frame = frame.assign(hour=frame["played_at"].dt.hour, weekday=frame["played_at"].dt.weekday)
+    known = frame[frame["genre"].notna() & frame["genre"].isin(list(BY_NAME))]
+    if known.empty:
+        return None
+    total_ms = float(known["ms_played"].sum())
+
+    per_genre = _aggregate(known, ["genre"]).sort_values(["ms", "streams"], ascending=False)
+    top = list(per_genre.index[:MAX_GENRE_SLICES])
+    if len(per_genre) > MAX_GENRE_SLICES:
+        rest = per_genre.iloc[MAX_GENRE_SLICES:].sum()
+        per_genre = pd.concat([per_genre.iloc[:MAX_GENRE_SLICES], pd.DataFrame([rest], index=[OTHER])])
+    genres = [GenreShare(str(g), int(r.streams), _minutes(r.ms), _pct(r.ms, total_ms)) for g, r in per_genre.iterrows()]
+    names = [g.genre for g in genres]
+
+    slot = known["genre"].where(known["genre"].isin(top), OTHER)
+    by_hour = known.assign(slot=slot).groupby(["hour", "slot"])["ms_played"].sum()
+    hour_totals = known.groupby("hour")["ms_played"].sum()
+    genre_hours = [
+        GenreHour(h, g, _minutes(by_hour.get((h, g), 0)), _pct(by_hour.get((h, g), 0), hour_totals.get(h, 0)))
+        for h in range(24) for g in names
+    ]
+
+    cells = {key: _weighted_happiness(group) for key, group in known.groupby(["weekday", "hour"])}
+    counts = known.groupby(["weekday", "hour"]).size()
+    mood_heatmap = [MoodCell(w, h, cells.get((w, h)), int(counts.get((w, h), 0))) for w in range(7) for h in range(24)]
+    hour_groups = dict(tuple(known.groupby("hour")))
+    mood_hours = [
+        MoodCell(-1, h, _weighted_happiness(hour_groups[h]) if h in hour_groups else None,
+                 len(hour_groups[h]) if h in hour_groups else 0)
+        for h in range(24)
+    ]
+    rated = [m for m in mood_hours if m.happiness is not None]
+    happiest = max(rated, key=lambda m: (m.happiness, -m.hour)).hour if rated else None
+    gloomiest = min(rated, key=lambda m: (m.happiness, m.hour)).hour if rated else None
+
+    return TasteProfile(
+        coverage=_pct(total_ms, float(frame["ms_played"].sum())),
+        genres=genres,
+        genre_hours=genre_hours,
+        mood_heatmap=mood_heatmap,
+        mood_hours=mood_hours,
+        average_happiness=_weighted_happiness(known) or 0.0,
+        happiest_hour=happiest,
+        gloomiest_hour=gloomiest,
+        trinity=_trinity(frame, known),
+    )
+
+
+def _taste_highlights(taste: TasteProfile) -> list[Highlight]:
+    t = taste.trinity
+    items = []
+    top = next((g for g in taste.genres if g.genre != OTHER), None)
+    if top:
+        items.append(Highlight("🎸", "Top genre", top.genre,
+                               f"{top.share}% of your listening time · {format_duration(top.minutes)}"))
+    items.append(Highlight(
+        t.icon, "Holy trinity", t.dominant.capitalize(),
+        f"Atzig {t.atzig:.0f} · Fotzig {t.fotzig:.0f} · Mausig {t.mausig:.0f}. {t.tagline}"))
+    moments = ""
+    if taste.happiest_hour is not None and taste.gloomiest_hour is not None:
+        moments = f" Happiest at {taste.happiest_hour:02d}:00, gloomiest at {taste.gloomiest_hour:02d}:00."
+    items.append(Highlight("🌦️", "Listening mood", mood_label(taste.average_happiness),
+                           f"Average happiness {taste.average_happiness:.0f}/100.{moments}"))
+    return items
+
 
 
 def compute_statistics(frame: pd.DataFrame, *, top_n: int = 10, key: str = ALL_TIME,
@@ -367,16 +556,21 @@ def compute_statistics(frame: pd.DataFrame, *, top_n: int = 10, key: str = ALL_T
         peak_weekday=int(per_weekday["streams"].idxmax()),
     )
 
+    taste = compute_taste(frame)
+    highlights = _highlights(overview, top_artists, top_tracks, top_days, top_n)
+    if taste is not None:
+        highlights[2:2] = _taste_highlights(taste)
+
     return WrappedStatistics(
         key=key, label=label, year=year,
         period_start=start.isoformat(), period_end=end.isoformat(),
         overview=overview,
-        highlights=_highlights(overview, top_artists, top_tracks, top_days, top_n),
+        highlights=highlights,
         top_artists=top_artists, top_artists_by_time=top_artists_by_time,
         least_streamed_artists=least_streamed,
         top_tracks=top_tracks, top_tracks_by_time=top_tracks_by_time, top_albums=top_albums,
         top_days=top_days, daily=daily, weekly=weekly, monthly=monthly, weekdays=weekdays, hours=hours,
-        heatmap=heatmap,
+        heatmap=heatmap, taste=taste,
     )
 
 

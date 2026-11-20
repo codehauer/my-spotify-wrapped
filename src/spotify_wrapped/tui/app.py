@@ -9,11 +9,14 @@ from textual.binding import Binding
 from textual.containers import Grid, Horizontal, VerticalScroll
 from textual.reactive import reactive
 from textual.theme import Theme
-from textual.widgets import Footer, Label, Select, TabbedContent, TabPane
+from textual.widgets import Footer, Label, Select, Static, TabbedContent, TabPane
 
 from ..formatting import format_duration, format_number, plural
 from ..statistics import Report, WrappedStatistics
-from .widgets import TopDaysTable, ColumnChart, Heatmap, HighlightCard, HorizontalBars, RankingTable, Section, StatCard
+from .widgets import (
+    ColumnChart, GenreHourChart, GenrePie, Heatmap, HighlightCard, HorizontalBars, MoodHeatmap, RankingTable,
+    Section, StatCard, TopDaysTable, TrinityRadar,
+)
 
 THEMES = [
     Theme(
@@ -116,6 +119,34 @@ class HabitsPane(ViewPane):
             yield Section("Weekday × hour", Heatmap(s.heatmap), id="heatmap")
 
 
+class TastePane(ViewPane):
+    def build(self, s: WrappedStatistics) -> ComposeResult:
+        t = s.taste
+        if t is None:
+            yield Section("No genre data", Static(
+                "Your Spotify export contains no genres. Start with [b]--genres[/b] to look up the genres of "
+                "your most played artists on MusicBrainz (only artist names are sent, results are cached), "
+                "or with [b]--genres my_genres.json[/b] to provide them yourself. Try [b]--demo[/b] to see "
+                "what this tab looks like."), id="taste-empty")
+            return
+        coverage = f"{t.coverage}% of your listening time has a known genre"
+        with Horizontal(classes="columns"):
+            yield Section("Genres · share of listening time", GenrePie(t.genres), id="genre-pie", subtitle=coverage)
+            yield Section("Holy trinity", TrinityRadar(t.trinity), id="trinity",
+                          subtitle=f"{t.trinity.icon} mostly {t.trinity.dominant}")
+        moments = ""
+        if t.happiest_hour is not None and t.gloomiest_hour is not None:
+            moments = f"happiest at {t.happiest_hour:02d}:00 · gloomiest at {t.gloomiest_hour:02d}:00"
+        yield Section("Mood · weekday × hour", MoodHeatmap(t.mood_heatmap, t.average_happiness), id="mood",
+                      subtitle=moments)
+        yield Section("Genres by hour of day", GenreHourChart(t.genres, t.genre_hours), id="genre-hours",
+                      subtitle="share of each hour's listening time")
+        yield Static(
+            "Genres come from the artists' tags; mood (happiness) and the atzig/fotzig/mausig profile are "
+            "estimated from those genres and from when you listen, not from the individual songs.",
+            classes="footnote")
+
+
 class WrappedApp(App[None]):
     """My Spotify Wrapped – terminal edition."""
 
@@ -128,6 +159,7 @@ class WrappedApp(App[None]):
         Binding("3", "show_tab('tracks')", "Tracks"),
         Binding("4", "show_tab('timeline')", "Timeline"),
         Binding("5", "show_tab('habits')", "Habits"),
+        Binding("6", "show_tab('taste')", "Taste"),
         Binding("left_square_bracket", "cycle_view(-1)", "Prev year", key_display="["),
         Binding("right_square_bracket", "cycle_view(1)", "Next year", key_display="]"),
         Binding("t", "toggle_dark", "Light/Dark"),
@@ -158,6 +190,7 @@ class WrappedApp(App[None]):
             yield TracksPane("Tracks", id="tracks")
             yield TimelinePane("Timeline", id="timeline")
             yield HabitsPane("Habits", id="habits")
+            yield TastePane("Taste", id="taste")
         yield Footer()
 
     def on_mount(self) -> None:

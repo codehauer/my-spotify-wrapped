@@ -94,7 +94,7 @@ def test_report_numbers(export_dir):
 def test_report_is_json_serializable_and_has_highlights():
     report = build_report(demo_streams(), top_n=5)
     data = json.loads(report.to_json())
-    assert data["schema_version"] == 1
+    assert data["schema_version"] == 2
     view = data["views"]["all"]
     assert len(view["top_artists"]) == 5
     assert view["top_albums"], "the extended format carries album names"

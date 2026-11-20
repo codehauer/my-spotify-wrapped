@@ -13,7 +13,7 @@ def test_tui_switches_tabs_years_and_themes():
         app = WrappedApp(report)
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            for key in "12345":
+            for key in "123456":
                 await pilot.press(key)
                 await pilot.pause()
             await pilot.press("]")

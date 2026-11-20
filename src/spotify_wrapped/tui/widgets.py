@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 
 from rich.text import Text
@@ -12,7 +13,8 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Label, Static
 
 from ..formatting import format_duration, format_number
-from ..statistics import Bucket, DayStat, HeatCell, Highlight, RankedItem
+from ..genres import OTHER
+from ..statistics import Bucket, DayStat, GenreHour, GenreShare, HeatCell, Highlight, MoodCell, RankedItem, Trinity
 from datetime import date
 
 _HORIZONTAL_BLOCKS = " ▏▎▍▌▋▊▉█"
@@ -254,4 +256,268 @@ class Heatmap(ThemedWidget):
         for step in range(6):
             text.append("  ", style=f"on {base.blend(hot, 0.12 + 0.88 * step / 5).rich_color.name}")
         text.append(" more", style="dim")
+        return text
+
+
+# --------------------------------------------------------------------------- #
+# Taste widgets: genres, trinity, mood
+# --------------------------------------------------------------------------- #
+
+# Categorical palette in a fixed order (validated for color vision deficiencies);
+# the color follows the genre's slot, "Other" is always neutral gray.
+GENRE_COLORS_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c", "#9085e9"]
+GENRE_COLORS_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6"]
+OTHER_COLOR = "#898781"
+SAD_COLOR = {"dark": "#3987e5", "light": "#2a78d6"}
+HAPPY_COLOR = {"dark": "#d95926", "light": "#eb6834"}
+
+
+def genre_colors(genres: Sequence[GenreShare], dark: bool) -> dict[str, str]:
+    palette = GENRE_COLORS_DARK if dark else GENRE_COLORS_LIGHT
+    colors: dict[str, str] = {}
+    for g in genres:
+        colors[g.genre] = OTHER_COLOR if g.genre == OTHER else palette[len(colors) % len(palette)]
+    return colors
+
+
+def _pixels(width: int, rows: int, pixel: Callable[[int, int], Color | None], background: Color) -> Text:
+    """Render a ``width × 2·rows`` pixel grid with upper half blocks (fg = upper, bg = lower pixel)."""
+    text = Text()
+    for row in range(rows):
+        for x in range(width):
+            top, bottom = pixel(x, 2 * row), pixel(x, 2 * row + 1)
+            if top is None and bottom is None:
+                text.append(" ")
+            else:
+                fg = (top or background).rich_color.name
+                bg = (bottom or background).rich_color.name
+                text.append("▀", style=f"{fg} on {bg}")
+        if row < rows - 1:
+            text.append("\n")
+    return text
+
+
+class GenrePie(ThemedWidget):
+    """A pie chart of the genre shares, with a legend on the right."""
+
+    DEFAULT_CSS = "GenrePie { height: 14; }"
+
+    def __init__(self, genres: Sequence[GenreShare], **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.genres = list(genres)
+
+    def render(self) -> Text:
+        colors = {k: Color.parse(v) for k, v in genre_colors(self.genres, self.app.current_theme.dark).items()}
+        rows = max(self.size.height, 4)
+        name_width = max((len(g.genre) for g in self.genres), default=0)
+        legend_width = name_width + 10
+        diameter = min(rows * 2, max(self.size.width - legend_width, 8))
+        radius = diameter / 2
+        background = self.color("surface")
+        bounds: list[tuple[float, Color]] = []
+        acc = 0.0
+        total = sum(g.share for g in self.genres) or 1
+        for g in self.genres:
+            acc += g.share / total
+            bounds.append((acc, colors[g.genre]))
+
+        def pixel(x: int, y: int) -> Color | None:
+            dx, dy = x + 0.5 - radius, y + 0.5 - radius
+            if dx * dx + dy * dy > radius * radius:
+                return None
+            fraction = (math.atan2(dx, -dy) / (2 * math.pi)) % 1.0  # clockwise from 12 o'clock
+            return next((c for end, c in bounds if fraction <= end), bounds[-1][1])
+
+        pie = _pixels(diameter, rows, pixel, background).split()
+        legend = [Text()] * rows
+        start = max((rows - len(self.genres)) // 2, 0)
+        for i, g in enumerate(self.genres[:rows]):
+            line = Text()
+            line.append("■ ", style=colors[g.genre].rich_color.name)
+            line.append(f"{g.genre:<{name_width}}", style="bold" if i == 0 else "")
+            line.append(f"{g.share:>5.1f}%", style="dim")
+            legend[start + i] = line
+        out = Text(no_wrap=True, overflow="crop")
+        for row in range(rows):
+            out.append_text(pie[row] if row < len(pie) else Text(" " * diameter))
+            out.append("  ")
+            out.append_text(legend[row])
+            if row < rows - 1:
+                out.append("\n")
+        return out
+
+
+class TrinityRadar(ThemedWidget):
+    """A three-axis radar chart for atzig (top), fotzig (bottom right) and mausig (bottom left)."""
+
+    DEFAULT_CSS = "TrinityRadar { height: 14; }"
+    AXES = ("atzig", "fotzig", "mausig")
+
+    def __init__(self, trinity: Trinity, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.trinity = trinity
+
+    def render(self) -> Text:
+        t = self.trinity
+        rows = max(self.size.height - 2, 4)
+        width = max(self.size.width, 10)
+        radius = min(rows * 2 * 0.62, width / 2 - 1)
+        cx, cy = width / 2, rows * 2 * 0.6
+        angles = [-math.pi / 2, math.pi / 6, 5 * math.pi / 6]
+        values = [getattr(t, a) / 100 for a in self.AXES]
+
+        def corners(scale: Sequence[float]) -> list[tuple[float, float]]:
+            return [(cx + radius * s * math.cos(a), cy + radius * s * math.sin(a)) for s, a in zip(scale, angles)]
+
+        def inside(px: float, py: float, tri: list[tuple[float, float]]) -> bool:
+            signs = []
+            for (x1, y1), (x2, y2) in zip(tri, tri[1:] + tri[:1]):
+                signs.append((x2 - x1) * (py - y1) - (y2 - y1) * (px - x1))
+            return all(s >= 0 for s in signs) or all(s <= 0 for s in signs)
+
+        def near_edge(px: float, py: float, tri: list[tuple[float, float]]) -> bool:
+            for (x1, y1), (x2, y2) in zip(tri, tri[1:] + tri[:1]):
+                length = math.hypot(x2 - x1, y2 - y1) or 1
+                u = max(0.0, min(1.0, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / length**2))
+                if math.hypot(px - x1 - u * (x2 - x1), py - y1 - u * (y2 - y1)) < 0.6:
+                    return True
+            return False
+
+        outer, middle, shape = corners([1, 1, 1]), corners([0.5, 0.5, 0.5]), corners(values)
+        spokes = [[(cx, cy), p, p] for p in outer]
+        primary = self.color("primary")
+        background = self.color("surface")
+        fill = background.blend(primary, 0.45)
+        grid = background.blend(self.color("foreground"), 0.25)
+
+        def pixel(x: int, y: int) -> Color | None:
+            px, py = x + 0.5, y + 0.5
+            if near_edge(px, py, shape):
+                return primary
+            if inside(px, py, shape):
+                return fill
+            if near_edge(px, py, outer) or near_edge(px, py, middle) or any(near_edge(px, py, s) for s in spokes):
+                return grid
+            return None
+
+        canvas = _pixels(width, rows, pixel, background)
+        top = Text(f"🍻 Atzig {t.atzig:.0f}", style="bold" if t.dominant == "atzig" else "")
+        top.align("center", width)
+        left = Text(f"🐭 Mausig {t.mausig:.0f}", style="bold" if t.dominant == "mausig" else "")
+        right = Text(f"Fotzig {t.fotzig:.0f} 💅", style="bold" if t.dominant == "fotzig" else "")
+        bottom = Text()
+        bottom.append_text(left)
+        bottom.append(" " * max(width - left.cell_len - right.cell_len, 1))
+        bottom.append_text(right)
+        return Text("\n").join([top, canvas, bottom])
+
+
+class MoodHeatmap(ThemedWidget):
+    """Weekday × hour heatmap of the happiness, diverging around the listener's own average."""
+
+    DEFAULT_CSS = "MoodHeatmap { height: 9; }"
+
+    def __init__(self, cells: Sequence[MoodCell], average: float, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.cells = list(cells)
+        self.average = average
+
+    def shade(self, happiness: float | None, spread: float) -> Color:
+        neutral = self.color("panel")
+        if happiness is None:
+            return self.color("surface")
+        mode = "dark" if self.app.current_theme.dark else "light"
+        delta = max(-1.0, min(1.0, (happiness - self.average) / spread))
+        pole = Color.parse(HAPPY_COLOR[mode] if delta > 0 else SAD_COLOR[mode])
+        return neutral.blend(pole, abs(delta) ** 0.8)
+
+    def render(self) -> Text:
+        cell_width = max(min((self.size.width - 5) // 24, 4), 1)
+        values = [c.happiness for c in self.cells if c.happiness is not None]
+        spread = max((abs(v - self.average) for v in values), default=1.0) or 1.0
+        grid = {(c.weekday, c.hour): c.happiness for c in self.cells}
+        text = Text()
+        header = "".join(f"{h:<{cell_width * 3}}" for h in range(0, 24, 3))
+        text.append("     " + header[: cell_width * 24] + "\n", style="dim")
+        for day in range(7):
+            text.append(f"{WEEKDAY_SHORT[day]}  ", style="dim")
+            for hour in range(24):
+                text.append(" " * cell_width, style=f"on {self.shade(grid.get((day, hour)), spread).rich_color.name}")
+            text.append("\n")
+        text.append("     sadder ", style="dim")
+        for step in (-1, -0.6, -0.25, 0, 0.25, 0.6, 1):
+            text.append("  ", style=f"on {self.shade(self.average + step * spread, spread).rich_color.name}")
+        text.append(" happier", style="dim")
+        text.append(f"   (vs. your average of {self.average:.0f}/100)", style="dim")
+        return text
+
+
+class GenreHourChart(ThemedWidget):
+    """100 % stacked columns: the genre mix of every hour of the day."""
+
+    DEFAULT_CSS = "GenreHourChart { height: 16; }"
+
+    def __init__(self, genres: Sequence[GenreShare], cells: Sequence[GenreHour], **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.genres = list(genres)
+        self.cells = list(cells)
+
+    def render(self) -> Text:
+        colors = {k: Color.parse(v) for k, v in genre_colors(self.genres, self.app.current_theme.dark).items()}
+        order = [g.genre for g in self.genres]
+        share = {(c.hour, c.genre): c.share for c in self.cells}
+        legend_lines = 2
+        chart_height = max(self.size.height - 1 - legend_lines, 2)
+        width = max(self.size.width, 24)
+        starts = [i * width // 24 for i in range(25)]
+        background = self.color("surface")
+        # For each hour: the genre occupying each eighth of the column, bottom to top.
+        columns: list[list[Color | None]] = []
+        for hour in range(24):
+            total = sum(share.get((hour, g), 0) for g in order)
+            eighths: list[Color | None] = []
+            if total > 0:
+                acc, filled = 0.0, 0
+                for g in order:
+                    acc += share.get((hour, g), 0) / total
+                    upto = round(acc * chart_height * 8)
+                    eighths += [colors[g]] * (upto - filled)
+                    filled = upto
+            columns.append(eighths + [None] * (chart_height * 8 - len(eighths)))
+
+        text = Text()
+        for row in range(chart_height - 1, -1, -1):
+            for hour in range(24):
+                span = starts[hour + 1] - starts[hour]
+                bar = span - 1 if span > 1 else span
+                part = columns[hour][row * 8: row * 8 + 8]
+                lower, upper = part[0], part[-1]
+                if lower is None:
+                    text.append(" " * bar)
+                elif lower == upper:
+                    text.append("█" * bar, style=lower.rich_color.name)
+                else:
+                    level = next(i for i, c in enumerate(part) if c != lower)
+                    bg = (upper or background).rich_color.name
+                    text.append(_VERTICAL_BLOCKS[level] * bar, style=f"{lower.rich_color.name} on {bg}")
+                text.append(" " * (span - bar))
+            text.append("\n")
+        axis = [" "] * width
+        for hour in range(0, 24, 3):
+            for offset, char in enumerate(f"{hour:02d}"):
+                if starts[hour] + offset < width:
+                    axis[starts[hour] + offset] = char
+        text.append("".join(axis) + "\n", style="dim")
+        # Legend entries are never split across lines.
+        lines, line = [], Text()
+        for g in order:
+            entry = Text()
+            entry.append("■ ", style=colors[g].rich_color.name)
+            entry.append(f"{g}   ")
+            if line.cell_len and line.cell_len + entry.cell_len > width:
+                lines.append(line)
+                line = Text()
+            line.append_text(entry)
+        lines.append(line)
+        text.append_text(Text("\n").join(lines[:legend_lines]))
         return text

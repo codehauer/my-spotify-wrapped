@@ -8,6 +8,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
+from .enrich import DEFAULT_ARTIST_LIMIT, add_genres
 from .loader import NoStreamingHistoryError, load_streams
 from .sample import demo_streams
 from .statistics import Report, build_report
@@ -22,6 +23,12 @@ def _add_data_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-n", "--top", type=int, default=10, metavar="N", help="length of rankings (default: 10)")
     parser.add_argument("--timezone", metavar="TZ",
                         help="timezone for hours and days, e.g. Europe/Berlin (default: this computer's)")
+    parser.add_argument("-g", "--genres", nargs="?", const="musicbrainz", metavar="SOURCE",
+                        help="add genre, mood and atzig/fotzig/mausig statistics: look up artist genres on "
+                             "MusicBrainz (default, sends artist names, results are cached) or read them "
+                             "from a JSON file {artist: genre or [tags]}")
+    parser.add_argument("--genre-artists", type=int, default=DEFAULT_ARTIST_LIMIT, metavar="N",
+                        help=f"look up the N most played artists on MusicBrainz (default: {DEFAULT_ARTIST_LIMIT})")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,6 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def load_report(args: argparse.Namespace) -> Report:
     frame = demo_streams(args.timezone) if args.demo else load_streams(args.data, args.timezone)
+    if args.genres and not args.demo:
+        frame = add_genres(frame, args.genres, limit=args.genre_artists)
     return build_report(frame, top_n=args.top, year=args.year)
 
 
@@ -59,6 +68,9 @@ def _forwarded_data_args(args: argparse.Namespace) -> list[str]:
         forwarded += ["--year", str(args.year)]
     if args.timezone:
         forwarded += ["--timezone", args.timezone]
+    if args.genres:
+        source = args.genres if args.genres == "musicbrainz" else str(Path(args.genres).resolve())
+        forwarded += ["--genres", source, "--genre-artists", str(args.genre_artists)]
     return forwarded + ["--top", str(args.top)]
 
 
@@ -91,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Wrote statistics to {args.output}", file=sys.stderr)
             else:
                 print(report.to_json(indent=2))
-    except (NoStreamingHistoryError, ValueError) as error:
+    except (NoStreamingHistoryError, ValueError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0

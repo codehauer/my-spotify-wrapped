@@ -132,3 +132,15 @@ DataTable {
 #hours ColumnChart {
     height: 14;
 }
+
+/* ---------- taste ---------- */
+#genre-pie GenrePie, #trinity TrinityRadar {
+    height: 16;
+}
+#genre-hours GenreHourChart {
+    height: 18;
+}
+.footnote {
+    color: $foreground-muted;
+    padding: 0 1;
+}

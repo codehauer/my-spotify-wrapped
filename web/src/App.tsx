@@ -14,6 +14,7 @@ import { Heading, Text } from '@astryxdesign/core/Text'
 import { TopNav, TopNavHeading, TopNavItem } from '@astryxdesign/core/TopNav'
 import { AudioLines, Moon, Sun, SunMoon } from 'lucide-react'
 import { ColumnChart, ListeningHeatmap, WeekdayChart, WeeklyChart, heatLegend } from './charts'
+import { GenreDonut, GenreHoursChart, MoodHeatmap, TRINITY_AXES, TrinityRadar, genreColors, moodLegend } from './taste'
 import { formatDate, formatDuration, formatNumber, formatWeekdayDate, plural } from './format'
 import type { DayStat, RankedItem, Report, WrappedStatistics } from './types'
 
@@ -24,6 +25,7 @@ const SECTIONS = [
   { id: 'favourites', label: 'Favourites' },
   { id: 'timeline', label: 'Timeline' },
   { id: 'habits', label: 'Habits' },
+  { id: 'taste', label: 'Taste' },
 ]
 
 export function App({ report, mode, onModeChange }: {
@@ -74,6 +76,7 @@ export function App({ report, mode, onModeChange }: {
               <Favourites stats={stats} />
               <Timeline stats={stats} />
               <Habits stats={stats} />
+              <Taste stats={stats} />
               <Footer report={report} />
             </VStack>
           </main>
@@ -333,6 +336,88 @@ function Habits({ stats }: { stats: WrappedStatistics }) {
           <Text type="supporting">More streams</Text>
         </HStack>
       </ChartCard>
+    </VStack>
+  )
+}
+
+function Legend({ items }: { items: { label: string; color: string; value?: string; strong?: boolean }[] }) {
+  return (
+    <ul className="legend">
+      {items.map((i) => (
+        <li key={i.label}>
+          <span className="legend-swatch" style={{ background: i.color }} aria-hidden="true" />
+          <Text weight={i.strong ? 'semibold' : undefined}>{i.label}</Text>
+          {i.value && <Text type="supporting" hasTabularNumbers>{i.value}</Text>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function Taste({ stats }: { stats: WrappedStatistics }) {
+  const t = stats.taste
+  if (!t) {
+    return (
+      <VStack gap={4}>
+        <SectionHeader id="taste" title="Taste" />
+        <Card>
+          <Text type="supporting">
+            Your Spotify export contains no genres. Create the report with <code>--genres</code> to look up the genres of your
+            most played artists on MusicBrainz (only artist names are sent, results are cached), or with{' '}
+            <code>--genres my_genres.json</code> to provide them yourself.
+          </Text>
+        </Card>
+      </VStack>
+    )
+  }
+  const colors = genreColors(t.genres)
+  const tr = t.trinity
+  const dominant = TRINITY_AXES.find((a) => a.key === tr.dominant)
+  const moments = t.happiest_hour !== null && t.gloomiest_hour !== null
+    ? `Happiest at ${String(t.happiest_hour).padStart(2, '0')}:00, gloomiest at ${String(t.gloomiest_hour).padStart(2, '0')}:00`
+    : undefined
+  return (
+    <VStack gap={4}>
+      <SectionHeader
+        id="taste"
+        title="Taste"
+        description={`Genres, mood and your holy trinity. ${t.coverage}% of your listening time has a known genre.`}
+      />
+      <Grid columns={{ minWidth: 420, repeat: 'fit' }} gap={4}>
+        <ChartCard title="Genres" subtitle="Share of your listening time">
+          <div className="donut-layout">
+            <GenreDonut genres={t.genres} />
+            <Legend items={t.genres.map((g, i) => ({ label: g.genre, color: colors.get(g.genre) ?? '', value: `${g.share.toFixed(1)}%`, strong: i === 0 }))} />
+          </div>
+        </ChartCard>
+        <ChartCard title="Holy trinity" subtitle={`${dominant?.icon ?? ''} Mostly ${dominant?.label.toLowerCase() ?? tr.dominant}`}>
+          <TrinityRadar trinity={tr} />
+          <HStack gap={4} hAlign="center" wrap="wrap">
+            {TRINITY_AXES.map((a) => (
+              <Text key={a.key} weight={a.key === tr.dominant ? 'semibold' : undefined} hasTabularNumbers>
+                {a.icon} {a.label} {Math.round(tr[a.key])}
+              </Text>
+            ))}
+          </HStack>
+          <Text type="supporting">{tr.tagline}</Text>
+        </ChartCard>
+      </Grid>
+      <ChartCard title="Mood by weekday and hour" subtitle={moments}>
+        <MoodHeatmap cells={t.mood_heatmap} average={t.average_happiness} />
+        <HStack gap={3} vAlign="center" wrap="wrap">
+          <Text type="supporting">Sadder</Text>
+          {moodLegend.map((l) => <span key={l.label} className="heat-swatch" style={{ background: l.color }} title={l.label} />)}
+          <Text type="supporting">Happier than your average of {Math.round(t.average_happiness)}/100</Text>
+        </HStack>
+      </ChartCard>
+      <ChartCard title="Genres by hour of day" subtitle="Share of each hour's listening time">
+        <GenreHoursChart genres={t.genres} cells={t.genre_hours} />
+        <Legend items={t.genres.map((g) => ({ label: g.genre, color: colors.get(g.genre) ?? '' }))} />
+      </ChartCard>
+      <Text type="supporting">
+        Genres come from the artists' tags. Mood (happiness) and the atzig/fotzig/mausig profile are estimated from those
+        genres and from when you listen, not from the individual songs.
+      </Text>
     </VStack>
   )
 }
